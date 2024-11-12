@@ -47,6 +47,22 @@ def generate_random_data():
         print("A valid record was inserted into BusEvent and ValidEvents.")
 
 
+# Function to retrieve data from a table
+def fetch_data_from_table(table_name, limit=10):
+    query = f"SELECT TOP {limit} * FROM {table_name}"
+    cursor.execute(query)
+
+    # Retrieve column names from cursor description
+    columns = [column[0] for column in cursor.description]
+    print(" | ".join(columns))  # Print column headers
+
+    # Fetch and print each row with column names
+    rows = cursor.fetchall()
+    for row in rows:
+        row_dict = dict(zip(columns, row))  # Pair column names with row values
+        print(row_dict)  # Print as a dictionary with labels
+
+
 # Generate data continuously for 10 seconds
 start_time = time.time()
 while time.time() - start_time < 10:
@@ -55,6 +71,16 @@ while time.time() - start_time < 10:
     time.sleep(0.25)  # Sleep for 0.25 seconds before generating the next record
 
 print("10 seconds of random data generation completed.")
+
+# Print tables
+print("Data from BusEvent table:")
+fetch_data_from_table("BusEvent")
+
+print("\nData from ValidEvents table:")
+fetch_data_from_table("ValidEvents")
+
+print("\nData from RejectedEvents table:")
+fetch_data_from_table("RejectedEvents")
 
 # Close connection
 conn.close()

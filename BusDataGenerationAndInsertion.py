@@ -52,7 +52,7 @@ start_time = time.time()
 while time.time() - start_time < 10:
     generate_random_data()
     conn.commit()
-    time.sleep(0.25)  # Sleep for 0.1 seconds before generating the next record
+    time.sleep(0.25)  # Sleep for 0.25 seconds before generating the next record
 
 print("10 seconds of random data generation completed.")
 

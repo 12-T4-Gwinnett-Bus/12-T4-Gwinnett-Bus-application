@@ -2,39 +2,59 @@ import pyodbc
 import random
 import time
 from datetime import datetime, timedelta
+from kafka import KafkaProducer
+import json
 
-# Connection details
+# Kafka connection details
+KAFKA_TOPIC = 'bus_data'
+KAFKA_SERVER = 'localhost:9092'  # Update this to your Kafka server if different
+
+# SQL Server connection details
 server = 'DESKTOP-OUKE0M4'
 database = 'BusData'
 driver = '{ODBC Driver 17 for SQL Server}'
+
+# Initialize Kafka Producer
+producer = KafkaProducer(
+    bootstrap_servers=KAFKA_SERVER,
+    value_serializer=lambda v: json.dumps(v, default=str).encode('utf-8')
+)
 
 # Connect to SQL Server
 connection_string = f'DRIVER={driver};SERVER={server};DATABASE={database};Trusted_Connection=yes;'
 conn = pyodbc.connect(connection_string)
 cursor = conn.cursor()
-print("Connected to SQL Server.")
+print("Connected to SQL Server and Kafka.")
 
 
 # Generate and insert random data
 def generate_random_data():
-    bus_id = random.randint(1, 100)  # Random bus ID between 1 and 100
-    happened_at_time = datetime.now() - timedelta(minutes=random.randint(0, 1000))  # Random time up to 1000 minutes ago
-    latitude = round(random.uniform(-90, 90), 6)  # Latitude within valid range
-    longitude = round(random.uniform(-180, 180), 6)  # Longitude within valid range
-    ecu_speed_mph = random.randint(0, 120)  # ECU speed between 0 and 120 mph
-    gps_speed_mph = random.randint(0, 120)  # GPS speed between 0 and 120 mph
-    heading_degrees = random.randint(0, 360)  # Heading between 0 and 360 degrees
+    bus_id = random.randint(1, 100)
+    happened_at_time = datetime.now() - timedelta(minutes=random.randint(0, 1000))
+    latitude = round(random.uniform(-90, 90), 6)
+    longitude = round(random.uniform(-180, 180), 6)
+    ecu_speed_mph = random.randint(0, 120)
+    gps_speed_mph = random.randint(0, 120)
+    heading_degrees = random.randint(0, 360)
 
-    # Validate records by checking speed
+    row_data = {
+        "bus_id": bus_id,
+        "happened_at_time": happened_at_time,
+        "latitude": latitude,
+        "longitude": longitude,
+        "ecu_speed_mph": ecu_speed_mph,
+        "gps_speed_mph": gps_speed_mph,
+        "heading_degrees": heading_degrees
+    }
+
+    # Determine if data is valid or rejected based on speed criteria
     if ecu_speed_mph > 70 or gps_speed_mph > 70:
-        # Insert into RejectedEvents if speed exceeds 70
         cursor.execute('''
             INSERT INTO dbo.RejectedEvents (bus_id, happened_at_time, latitude, longitude, ecu_speed_mph, gps_speed_mph, heading_degrees)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', (bus_id, happened_at_time, latitude, longitude, ecu_speed_mph, gps_speed_mph, heading_degrees))
         print("An invalid record was inserted into RejectedEvents.")
     else:
-        # Insert into both BusEvent and ValidEvents if speed is 70 or below
         cursor.execute('''
             INSERT INTO dbo.BusEvent (bus_id, happened_at_time, latitude, longitude, ecu_speed_mph, gps_speed_mph, heading_degrees)
             VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -46,29 +66,33 @@ def generate_random_data():
         ''', (bus_id, happened_at_time, latitude, longitude, ecu_speed_mph, gps_speed_mph, heading_degrees))
         print("A valid record was inserted into BusEvent and ValidEvents.")
 
+    # Send the row data to Kafka
+    producer.send(KAFKA_TOPIC, value=row_data)
+    print("Data sent to Kafka:", row_data)
 
-# Function to retrieve data from a table
+
+# Function to retrieve and print data from a table
 def fetch_data_from_table(table_name, limit=10):
     query = f"SELECT TOP {limit} * FROM {table_name}"
     cursor.execute(query)
 
-    # Retrieve column names from cursor description
+    # Retrieve column names
     columns = [column[0] for column in cursor.description]
     print(" | ".join(columns))  # Print column headers
 
-    # Fetch and print each row with column names
+    # Fetch and print each row
     rows = cursor.fetchall()
     for row in rows:
-        row_dict = dict(zip(columns, row))  # Pair column names with row values
+        row_dict = dict(zip(columns, row))
         print(row_dict)  # Print as a dictionary with labels
 
 
-# Generate data continuously for 10 seconds
+# Generate and send data for 10 seconds
 start_time = time.time()
 while time.time() - start_time < 10:
     generate_random_data()
     conn.commit()
-    time.sleep(0.25)  # Sleep for 0.25 seconds before generating the next record
+    time.sleep(0.25)
 
 print("10 seconds of random data generation completed.")
 
@@ -82,6 +106,8 @@ fetch_data_from_table("ValidEvents")
 print("\nData from RejectedEvents table:")
 fetch_data_from_table("RejectedEvents")
 
-# Close connection
+# Close connections
 conn.close()
+producer.flush()  # Ensure all messages are sent
+producer.close()
 print("Connection closed.")
